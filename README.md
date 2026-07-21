@@ -9,6 +9,7 @@ Qwen3.5-27B 多模态 LoRA 的 E1 Dev 生成式评测工具。该仓库只包含
 - 输出 TP/FN/FP/TN、Recall、FPR、Accuracy、F1、JSON 合法率和逐样本错误记录。
 - 根据固定 Dev 指标选择 checkpoint；Test 不参与 checkpoint、阈值或提示选择。
 - 记录输入哈希、ms-swift 版本、作业状态和退出码，便于复现与审计。
+- 对选定 checkpoint 输出 FN/FP 明细、BAD 类别召回率和高频错误原因。
 
 ## 环境
 
