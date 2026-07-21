@@ -1,5 +1,9 @@
+const query = new URLSearchParams(location.search);
+const requestedRow = Number.parseInt(query.get("row") || "", 10);
+
 const state = {
-  token: new URLSearchParams(location.search).get("token") || sessionStorage.getItem("auditToken") || "",
+  token: query.get("token") || sessionStorage.getItem("auditToken") || "",
+  requestedRow: Number.isInteger(requestedRow) ? requestedRow : null,
   records: [],
   annotations: {},
   filtered: [],
@@ -207,7 +211,7 @@ async function initialize() {
     state.records = value.records;
     state.annotations = value.annotations || {};
     elements.saveState.textContent = "已载入";
-    applyFilter();
+    applyFilter(state.requestedRow);
   } catch (error) {
     elements.loading.textContent = `无法载入：${error.message}`;
     elements.saveState.textContent = "载入失败";

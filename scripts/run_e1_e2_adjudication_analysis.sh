@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT=/home/data/h30082292/data/pose/artifact_detection_training
 AUDIT="$ROOT/evaluations/e1_e2_dev_boundary_audit_v1"
-OUT="$AUDIT/adjudication-analysis-v1"
+OUT=${ADJUDICATION_OUT:-"$AUDIT/adjudication-analysis-v1"}
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 python "$SCRIPT_DIR/analyze_e1_e2_adjudication.py" \

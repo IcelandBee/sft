@@ -48,6 +48,16 @@ def annotation(label_status, severity, decision, category=""):
 
 
 class AdjudicationAnalysisTests(unittest.TestCase):
+    def test_runner_allows_non_destructive_versioned_output(self):
+        from pathlib import Path
+
+        script = (
+            Path(__file__).parents[1]
+            / "scripts"
+            / "run_e1_e2_adjudication_analysis.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("ADJUDICATION_OUT", script)
+
     def setUp(self):
         self.dev = [
             dev_row("/a.jpg", "GOOD"),

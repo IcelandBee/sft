@@ -27,6 +27,13 @@ def record(row=3, image="/image.jpg"):
 
 
 class DevAuditWebTests(unittest.TestCase):
+    def test_frontend_supports_direct_dev_row_navigation(self):
+        script = (
+            Path(__file__).parents[1] / "web" / "dev-audit" / "app.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn('query.get("row")', script)
+        self.assertIn("applyFilter(state.requestedRow)", script)
+
     def test_loads_review_manifest_and_rejects_duplicate_rows(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "review.jsonl"
