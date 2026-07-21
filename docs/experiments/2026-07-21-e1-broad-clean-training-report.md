@@ -32,6 +32,33 @@
 - `max_length=2048`，`IMAGE_MAX_TOKEN_NUM=1024`，seed/data seed 均为 42。
 - 每 156 step 评估，每 312 step 保存，共得到 8 个 checkpoint：312–2496。
 
+### Prompt 设计
+
+System prompt：
+
+```text
+你是AIGC写实人像质量检测器。请依据图片中可见内容判断是否存在明显的生成异常。严格只输出指定JSON，不要添加分析、解释或Markdown。
+```
+
+User prompt：
+
+```text
+<image>
+检查这张图片。输出decision、categories和reasons。decision只能是GOOD或BAD。
+```
+
+目标输出格式：
+
+```json
+{"decision":"GOOD","categories":[],"reasons":[]}
+```
+
+```json
+{"decision":"BAD","categories":["手部异常"],"reasons":["手指畸形"]}
+```
+
+设计上将图片级 `decision` 作为核心目标并放在首字段，`categories` 和短 `reasons` 作为辅助监督；GOOD 的辅助字段必须为空，BAD 最多保留 3 项辅助信息。训练和推理均使用 non-thinking 模式，并要求固定 JSON schema，以减少自由文本造成的解析歧义。本版 Prompt 保持简短，没有加入类别定义、严重程度边界或正反例，这也可能是部分边界样本出现 FN/FP 的因素。
+
 ## 3. 结果统计和分析
 
 ### 训练运行
