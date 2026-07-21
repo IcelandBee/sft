@@ -20,21 +20,38 @@ class SelectionError(ValueError):
     """Raised when checkpoint metrics violate the selection contract."""
 
 
-def _validate_metrics(metrics: list[dict]) -> list[dict]:
+def normalize_expected_steps(expected_steps: tuple[int, ...]) -> tuple[int, ...]:
+    """Validate one explicit, strictly increasing checkpoint contract."""
+    steps = tuple(expected_steps)
+    if not steps:
+        raise SelectionError("expected checkpoint steps must not be empty")
+    if any(isinstance(step, bool) or not isinstance(step, int) or step <= 0 for step in steps):
+        raise SelectionError("expected checkpoint steps must be positive integers")
+    if len(set(steps)) != len(steps):
+        raise SelectionError("expected checkpoint steps must be unique")
+    if steps != tuple(sorted(steps)):
+        raise SelectionError("expected checkpoint steps must be strictly increasing")
+    return steps
+
+
+def _validate_metrics(
+    metrics: list[dict], expected_steps: tuple[int, ...] = EXPECTED_STEPS
+) -> list[dict]:
+    expected_steps = normalize_expected_steps(expected_steps)
     rows = [dict(row) for row in metrics]
     steps = [row.get("checkpoint_step") for row in rows]
     duplicates = sorted(step for step, count in Counter(steps).items() if count > 1)
     if duplicates:
         raise SelectionError(f"duplicate checkpoint step: {duplicates[0]}")
-    missing = sorted(set(EXPECTED_STEPS) - set(steps))
-    extra = sorted(set(steps) - set(EXPECTED_STEPS), key=str)
+    missing = sorted(set(expected_steps) - set(steps))
+    extra = sorted(set(steps) - set(expected_steps), key=str)
     if missing:
         raise SelectionError(f"missing checkpoint step: {missing[0]}")
     if extra:
         raise SelectionError(f"unexpected checkpoint step: {extra[0]}")
-    if len(rows) != len(EXPECTED_STEPS):
+    if len(rows) != len(expected_steps):
         raise SelectionError(
-            f"expected {len(EXPECTED_STEPS)} checkpoint metrics, got {len(rows)}"
+            f"expected {len(expected_steps)} checkpoint metrics, got {len(rows)}"
         )
 
     for row in rows:
@@ -54,9 +71,12 @@ def _rank_key(row: dict) -> tuple[float, float, float, int]:
     return (-row["recall"], -row["accuracy"], -row["f1"], row["checkpoint_step"])
 
 
-def select_checkpoint(metrics: list[dict]) -> dict:
+def select_checkpoint(
+    metrics: list[dict], expected_steps: tuple[int, ...] = EXPECTED_STEPS
+) -> dict:
     """Apply the fixed Dev gates and ranking rule."""
-    rows = _validate_metrics(metrics)
+    expected_steps = normalize_expected_steps(expected_steps)
+    rows = _validate_metrics(metrics, expected_steps)
     annotated: list[dict] = []
     for row in sorted(rows, key=lambda item: item["checkpoint_step"]):
         item = dict(row)
@@ -74,7 +94,7 @@ def select_checkpoint(metrics: list[dict]) -> dict:
             "fpr_max": 0.25,
             "rank_order": ["recall_desc", "accuracy_desc", "f1_desc", "step_asc"],
         },
-        "expected_steps": list(EXPECTED_STEPS),
+        "expected_steps": list(expected_steps),
         "eligible_steps": [row["checkpoint_step"] for row in eligible],
         "selected_step": selected,
         "test_unlocked": selected is not None,
@@ -82,14 +102,19 @@ def select_checkpoint(metrics: list[dict]) -> dict:
     }
 
 
-def run_selection(root: Path, output_path: Path) -> dict:
+def run_selection(
+    root: Path,
+    output_path: Path,
+    expected_steps: tuple[int, ...] = EXPECTED_STEPS,
+) -> dict:
     """Load all fixed checkpoint metrics and atomically write their selection summary."""
+    expected_steps = normalize_expected_steps(expected_steps)
     root = Path(root)
     output_path = Path(output_path)
     if output_path.exists():
         raise SelectionError(f"output path already exists: {output_path}")
     rows: list[dict] = []
-    for step in EXPECTED_STEPS:
+    for step in expected_steps:
         path = root / f"checkpoint-{step}" / "evaluation" / "metrics.json"
         if not path.is_file():
             raise SelectionError(f"missing checkpoint metrics: {path}")
@@ -106,7 +131,7 @@ def run_selection(root: Path, output_path: Path) -> dict:
             )
         rows.append(row)
 
-    summary = select_checkpoint(rows)
+    summary = select_checkpoint(rows, expected_steps)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(
         prefix=f".{output_path.name}.", suffix=".tmp", dir=output_path.parent
@@ -130,13 +155,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--steps", nargs="+", type=int, default=list(EXPECTED_STEPS))
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        summary = run_selection(args.root, args.output)
+        summary = run_selection(args.root, args.output, tuple(args.steps))
     except (SelectionError, OSError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2

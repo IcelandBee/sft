@@ -71,6 +71,20 @@ class SelectionRuleTests(unittest.TestCase):
         self.assertFalse(summary["test_unlocked"])
         self.assertEqual(summary["eligible_steps"], [])
 
+    def test_supports_explicit_e2_checkpoint_steps(self):
+        e2_steps = (156, 312, 468, 624, 780, 936, 1092, 1248)
+        rows = [metric(step) for step in e2_steps]
+        rows[3]["recall"] = 0.91
+
+        summary = select_checkpoint(rows, e2_steps)
+
+        self.assertEqual(summary["expected_steps"], list(e2_steps))
+        self.assertEqual(summary["selected_step"], 624)
+
+    def test_rejects_invalid_expected_step_contract(self):
+        with self.assertRaisesRegex(SelectionError, "strictly increasing"):
+            select_checkpoint([metric(312), metric(156)], (312, 156))
+
     def test_rejects_missing_duplicate_and_wrong_sample_count(self):
         with self.assertRaisesRegex(SelectionError, "missing checkpoint"):
             select_checkpoint([metric(step) for step in EXPECTED_STEPS[:-1]])

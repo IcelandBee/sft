@@ -7,6 +7,7 @@ from pathlib import Path
 from scripts.run_e1_dev_checkpoints import (
     RunnerError,
     assign_jobs,
+    main,
     build_manifest,
     build_swift_command,
     validate_dev_file,
@@ -60,6 +61,20 @@ class SchedulingAndManifestTests(unittest.TestCase):
         self.assertEqual([step for step, _ in jobs], list(EXPECTED_STEPS))
         self.assertEqual(Counter(gpu for _, gpu in jobs), {4: 2, 5: 2, 6: 2, 7: 2})
         self.assertEqual(jobs[:4], [(312, 4), (624, 5), (936, 6), (1248, 7)])
+
+    def test_assigns_explicit_e2_steps_without_changing_protocol(self):
+        e2_steps = (156, 312, 468, 624, 780, 936, 1092, 1248)
+
+        jobs = assign_jobs(e2_steps, (4, 5, 6, 7))
+
+        self.assertEqual(jobs[:4], [(156, 4), (312, 5), (468, 6), (624, 7)])
+        self.assertEqual(jobs[-4:], [(780, 4), (936, 5), (1092, 6), (1248, 7)])
+
+    def test_cli_reports_invalid_step_contract_without_traceback(self):
+        self.assertEqual(
+            main(["--output-root", "/eval", "--steps", "312", "156"]),
+            2,
+        )
 
     def test_manifest_contains_eight_auditable_jobs_and_write_is_exclusive(self):
         manifest = build_manifest(

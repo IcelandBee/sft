@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run fixed E1 Dev inference for eight checkpoints on GPUs 4-7."""
+"""Run fixed E1-compatible Dev inference for explicit checkpoints on GPUs 4-7."""
 
 from __future__ import annotations
 
@@ -17,10 +17,20 @@ from datetime import datetime, timezone
 
 if __package__:
     from .evaluate_e1_dev import SYSTEM_PROMPT, USER_PROMPT, validate_payload
-    from .select_e1_checkpoint import EXPECTED_STEPS, run_selection
+    from .select_e1_checkpoint import (
+        EXPECTED_STEPS,
+        SelectionError,
+        normalize_expected_steps,
+        run_selection,
+    )
 else:
     from evaluate_e1_dev import SYSTEM_PROMPT, USER_PROMPT, validate_payload  # type: ignore
-    from select_e1_checkpoint import EXPECTED_STEPS, run_selection  # type: ignore
+    from select_e1_checkpoint import (  # type: ignore
+        EXPECTED_STEPS,
+        SelectionError,
+        normalize_expected_steps,
+        run_selection,
+    )
 
 
 DEFAULT_MODEL = Path("/home/data/h30082292/DATA_71/public/models/Qwen3.5-27B")
@@ -69,6 +79,7 @@ def assign_jobs(
     steps: tuple[int, ...], gpus: tuple[int, ...]
 ) -> list[tuple[int, int]]:
     """Assign checkpoint steps round-robin to unique physical GPUs."""
+    steps = normalize_expected_steps(steps)
     if not gpus:
         raise RunnerError("at least one GPU is required")
     if len(set(gpus)) != len(gpus):
@@ -105,6 +116,7 @@ def build_manifest(
         )
     return {
         "protocol_version": "e1_dev_batch_inference_v1",
+        "expected_steps": list(steps),
         "model": str(model),
         "checkpoint_root": str(checkpoint_root),
         "dev": str(dev),
@@ -201,8 +213,11 @@ def validate_dev_file(
     }
 
 
-def _check_checkpoint_root(checkpoint_root: Path) -> None:
-    for step in EXPECTED_STEPS:
+def _check_checkpoint_root(
+    checkpoint_root: Path, expected_steps: tuple[int, ...] = EXPECTED_STEPS
+) -> None:
+    expected_steps = normalize_expected_steps(expected_steps)
+    for step in expected_steps:
         checkpoint = Path(checkpoint_root) / f"checkpoint-{step}"
         if not (checkpoint / "adapter_config.json").is_file():
             raise RunnerError(f"missing adapter_config.json: {checkpoint}")
@@ -240,6 +255,7 @@ def preflight(
     dev: Path,
     output_root: Path,
     gpus: tuple[int, ...],
+    expected_steps: tuple[int, ...] = EXPECTED_STEPS,
 ) -> dict:
     """Run every read-only gate required before dry-run or execution."""
     if shutil.which("swift") is None:
@@ -251,7 +267,8 @@ def preflight(
         raise RunnerError("cannot determine installed swift version") from exc
     if not (Path(model) / "config.json").is_file():
         raise RunnerError(f"model config does not exist: {model}")
-    _check_checkpoint_root(checkpoint_root)
+    expected_steps = normalize_expected_steps(expected_steps)
+    _check_checkpoint_root(checkpoint_root, expected_steps)
     if Path(output_root).exists():
         raise RunnerError(f"output root already exists: {output_root}")
     dev_summary = validate_dev_file(dev)
@@ -260,6 +277,7 @@ def preflight(
         "dev": dev_summary,
         "gpu_free_mib": free_by_gpu,
         "swift_version": swift_version,
+        "expected_steps": list(expected_steps),
     }
 
 
@@ -345,8 +363,13 @@ def _run_gpu_jobs(gpu: int, jobs: list[dict], evaluator: Path) -> list[int]:
     return completed_steps
 
 
-def run_batch(manifest: dict, output_root: Path) -> dict:
+def run_batch(
+    manifest: dict,
+    output_root: Path,
+    expected_steps: tuple[int, ...] = EXPECTED_STEPS,
+) -> dict:
     """Execute one fixed two-checkpoint queue per GPU, then select by Dev metrics."""
+    expected_steps = normalize_expected_steps(expected_steps)
     output_root = Path(output_root)
     output_root.mkdir(parents=True, exist_ok=False)
     write_manifest(output_root / "run-manifest.json", manifest)
@@ -373,9 +396,13 @@ def run_batch(manifest: dict, output_root: Path) -> dict:
                 errors.append(f"GPU {gpu}: {exc}")
     if errors:
         raise RunnerError("; ".join(errors))
-    if sorted(completed_steps) != list(EXPECTED_STEPS):
+    if sorted(completed_steps) != list(expected_steps):
         raise RunnerError(f"incomplete checkpoint set: {sorted(completed_steps)}")
-    return run_selection(output_root, output_root / "checkpoint-summary.json")
+    return run_selection(
+        output_root,
+        output_root / "checkpoint-summary.json",
+        expected_steps,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -385,6 +412,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dev", type=Path, default=DEFAULT_DEV)
     parser.add_argument("--output-root", required=True, type=Path)
     parser.add_argument("--gpus", nargs="+", type=int, default=list(DEFAULT_GPUS))
+    parser.add_argument("--steps", nargs="+", type=int, default=list(EXPECTED_STEPS))
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--manifest-path", type=Path)
     return parser
@@ -393,16 +421,22 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     gpus = tuple(args.gpus)
+    steps = tuple(args.steps)
     try:
         checked = preflight(
-            args.model, args.checkpoint_root, args.dev, args.output_root, gpus
+            args.model,
+            args.checkpoint_root,
+            args.dev,
+            args.output_root,
+            gpus,
+            steps,
         )
         manifest = build_manifest(
             args.model,
             args.checkpoint_root,
             args.dev,
             args.output_root,
-            EXPECTED_STEPS,
+            steps,
             gpus,
             checked["dev"]["sha256"],
         )
@@ -415,8 +449,8 @@ def main(argv: list[str] | None = None) -> int:
             write_manifest(manifest_path, manifest)
             print(f"DRY_RUN_CHECK: PASS\nManifest: {manifest_path}")
             return 0
-        summary = run_batch(manifest, args.output_root)
-    except (RunnerError, OSError) as exc:
+        summary = run_batch(manifest, args.output_root, steps)
+    except (RunnerError, SelectionError, OSError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
