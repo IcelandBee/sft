@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>E1 / E2 决策边界复核</title>
+  <meta name="description" content="Qwen3.5-27B E1/E2 Dev 决策边界人工复核工具">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">AD</span>
+      <div>
+        <strong>决策边界复核</strong>
+        <span>E1 × E2 · 固定 Dev</span>
+      </div>
+    </div>
+    <div class="progress-wrap" aria-label="复核进度">
+      <div class="progress-copy"><span id="progressText">0 / 0</span><span id="saveState">正在载入</span></div>
+      <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
+    </div>
+    <div class="top-actions">
+      <select id="filterSelect" aria-label="筛选样本">
+        <option value="all">全部重点样本</option>
+        <option value="unreviewed">仅未完成</option>
+        <option value="disagreement">E1 / E2 分歧</option>
+        <option value="both_wrong">共同错误</option>
+      </select>
+      <button id="exportButton" class="button ghost">导出 CSV</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="visual-panel" aria-label="待复核图片">
+      <div class="sample-meta">
+        <div class="meta-left">
+          <span id="sampleCounter" class="counter">— / —</span>
+          <span id="groupBadge" class="badge">载入中</span>
+        </div>
+        <button id="openImageButton" class="icon-button" title="在新标签页打开原图">查看原图 ↗</button>
+      </div>
+      <div id="imageStage" class="image-stage">
+        <div id="loadingState" class="loading-state">正在读取审计清单…</div>
+        <img id="reviewImage" alt="当前待复核图片">
+      </div>
+      <div class="path-row"><span>图像路径</span><code id="imagePath">—</code></div>
+      <div class="nav-row">
+        <button id="previousButton" class="button secondary">← 上一张</button>
+        <span>快捷键：← / → 切换，Ctrl + Enter 保存</span>
+        <button id="nextButton" class="button secondary">下一张 →</button>
+      </div>
+    </section>
+
+    <aside class="review-panel" aria-label="标注表单">
+      <section class="comparison">
+        <h2>已有判断</h2>
+        <div class="model-grid">
+          <article id="goldCard" class="model-card gold-card">
+            <div class="card-title"><span>Gold 标注</span><strong id="goldDecision">—</strong></div>
+            <p id="goldCategories">—</p><small id="goldReasons">—</small>
+          </article>
+          <article id="e1Card" class="model-card">
+            <div class="card-title"><span>E1</span><strong id="e1Decision">—</strong></div>
+            <p id="e1Categories">—</p><small id="e1Reasons">—</small>
+          </article>
+          <article id="e2Card" class="model-card">
+            <div class="card-title"><span>E2</span><strong id="e2Decision">—</strong></div>
+            <p id="e2Categories">—</p><small id="e2Reasons">—</small>
+          </article>
+        </div>
+      </section>
+
+      <form id="reviewForm" class="review-form">
+        <fieldset>
+          <legend>1. 原 Gold 标注是否正确？ <em>必填</em></legend>
+          <div class="segmented" data-field="label_status">
+            <label><input type="radio" name="label_status" value="gold_correct"><span>正确</span></label>
+            <label><input type="radio" name="label_status" value="gold_incorrect"><span>错误</span></label>
+            <label><input type="radio" name="label_status" value="uncertain"><span>不确定</span></label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>2. 可见异常的明显程度 <em>必填</em></legend>
+          <div class="segmented four" data-field="visible_severity">
+            <label><input type="radio" name="visible_severity" value="obvious"><span>明显</span></label>
+            <label><input type="radio" name="visible_severity" value="borderline"><span>边界</span></label>
+            <label><input type="radio" name="visible_severity" value="none"><span>无异常</span></label>
+            <label><input type="radio" name="visible_severity" value="uncertain"><span>不确定</span></label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>3. 复核后的图片级结论 <em>必填</em></legend>
+          <div class="segmented decision" data-field="review_decision">
+            <label><input type="radio" name="review_decision" value="GOOD"><span>GOOD</span></label>
+            <label><input type="radio" name="review_decision" value="BAD"><span>BAD</span></label>
+            <label><input type="radio" name="review_decision" value="UNSURE"><span>UNSURE</span></label>
+          </div>
+        </fieldset>
+
+        <label class="field-label" for="categorySelect">主要异常类别</label>
+        <select id="categorySelect" name="primary_category">
+          <option value="">未选择</option>
+          <option>手部异常</option>
+          <option>文字/符号异常</option>
+          <option>面部/五官异常</option>
+          <option>人体结构异常</option>
+          <option>常识不合理</option>
+          <option>关系/逻辑矛盾</option>
+          <option>其他</option>
+          <option>无可见异常</option>
+          <option>类别不确定</option>
+        </select>
+
+        <label class="field-label" for="notesInput">复核备注</label>
+        <textarea id="notesInput" name="notes" maxlength="2000" rows="3" placeholder="例如：手部被遮挡，原标注依据不足；或异常清晰但类别应调整。"></textarea>
+
+        <div class="form-footer">
+          <span id="completionHint">完成 3 个必填项后计入进度</span>
+          <button id="saveButton" type="submit" class="button primary">保存并下一张</button>
+        </div>
+      </form>
+    </aside>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
