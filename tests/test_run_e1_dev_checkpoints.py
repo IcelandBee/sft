@@ -134,6 +134,32 @@ class DevValidationTests(unittest.TestCase):
             with self.assertRaisesRegex(RunnerError, "image does not exist"):
                 validate_dev_file(path, expected_count=2, expected_good=1, expected_bad=1)
 
+    def test_accepts_explicit_adjudicated_label_counts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            images = [root / f"{index}.jpg" for index in range(3)]
+            for image in images:
+                image.write_bytes(b"image")
+            rows = [
+                self.make_dev_row(images[0], "GOOD"),
+                self.make_dev_row(images[1], "GOOD"),
+                self.make_dev_row(images[2], "BAD"),
+            ]
+            path = root / "dev.jsonl"
+            path.write_text(
+                "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+                encoding="utf-8",
+            )
+
+            summary = validate_dev_file(
+                path,
+                expected_count=3,
+                expected_good=2,
+                expected_bad=1,
+            )
+
+            self.assertEqual(summary["counts"], {"GOOD": 2, "BAD": 1, "total": 3})
+
     @staticmethod
     def make_dev_row(image, decision):
         value = {

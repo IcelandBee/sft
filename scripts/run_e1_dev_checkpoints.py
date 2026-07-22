@@ -256,6 +256,8 @@ def preflight(
     output_root: Path,
     gpus: tuple[int, ...],
     expected_steps: tuple[int, ...] = EXPECTED_STEPS,
+    expected_good: int = 149,
+    expected_bad: int = 51,
 ) -> dict:
     """Run every read-only gate required before dry-run or execution."""
     if shutil.which("swift") is None:
@@ -271,7 +273,11 @@ def preflight(
     _check_checkpoint_root(checkpoint_root, expected_steps)
     if Path(output_root).exists():
         raise RunnerError(f"output root already exists: {output_root}")
-    dev_summary = validate_dev_file(dev)
+    dev_summary = validate_dev_file(
+        dev,
+        expected_good=expected_good,
+        expected_bad=expected_bad,
+    )
     free_by_gpu = _check_gpus(gpus)
     return {
         "dev": dev_summary,
@@ -413,6 +419,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-root", required=True, type=Path)
     parser.add_argument("--gpus", nargs="+", type=int, default=list(DEFAULT_GPUS))
     parser.add_argument("--steps", nargs="+", type=int, default=list(EXPECTED_STEPS))
+    parser.add_argument("--expected-good", type=int, default=149)
+    parser.add_argument("--expected-bad", type=int, default=51)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--manifest-path", type=Path)
     return parser
@@ -430,6 +438,8 @@ def main(argv: list[str] | None = None) -> int:
             args.output_root,
             gpus,
             steps,
+            expected_good=args.expected_good,
+            expected_bad=args.expected_bad,
         )
         manifest = build_manifest(
             args.model,
