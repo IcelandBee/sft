@@ -3,7 +3,7 @@ set -euo pipefail
 
 MODEL=/home/data/h30082292/DATA_71/public/models/Qwen3.5-27B
 DATA=/home/data/h30082292/data/pose/artifact_detection_training/ms_swift/e4_crop_aux_json_v1
-OUT=/home/data/h30082292/data/pose/artifact_detection_training/runs/e4_crop_aux_aligner_r16_s1248_v1
+OUT=/home/data/h30082292/data/pose/artifact_detection_training/runs/e4_crop_aux_aligner_r16_s2080_v1
 
 TRAIN="$DATA/train.jsonl"
 DEV="$DATA/dev.jsonl"
@@ -173,7 +173,7 @@ for GPU in 4 5 6 7; do
     fi
 done
 
-echo "E4_PROTOCOL: T1/T2/T3=9978/3326/3326, LLM+aligner all-linear LoRA r16, ViT frozen, max_steps=1248, max_length=3072"
+echo "E4_PROTOCOL: T1/T2/T3=9978/3326/3326, LLM+aligner all-linear LoRA r16, ViT frozen, max_steps=2080 (~2 epochs), max_length=3072"
 
 if [[ "$MODE" == "--preflight-only" ]]; then
     echo "E4_PREFLIGHT_CHECK: PASS"
@@ -214,7 +214,7 @@ swift sft \
     --lr_scheduler_type cosine \
     --warmup_ratio 0.05 \
     --weight_decay 0.1 \
-    --max_steps 1248 \
+    --max_steps 2080 \
     --per_device_train_batch_size 1 \
     --per_device_eval_batch_size 1 \
     --gradient_accumulation_steps 4 \
@@ -222,9 +222,9 @@ swift sft \
     --max_length 3072 \
     --deepspeed zero2 \
     --eval_strategy steps \
-    --eval_steps 156 \
+    --eval_steps 260 \
     --save_strategy steps \
-    --save_steps 156 \
+    --save_steps 260 \
     --save_total_limit 8 \
     --save_only_model false \
     --logging_steps 5 \

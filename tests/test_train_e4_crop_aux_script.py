@@ -6,7 +6,7 @@ from pathlib import Path
 SCRIPT = (
     Path(__file__).resolve().parents[1]
     / "scripts"
-    / "train_e4_crop_aux_aligner_r16_s1248_v1.sh"
+    / "train_e4_crop_aux_aligner_r16_s2080_v1.sh"
 )
 
 
@@ -44,19 +44,19 @@ class E4CropAuxTrainingScriptTests(unittest.TestCase):
         self.assertEqual(self.value("--learning_rate"), "5e-5")
         self.assertEqual(self.value("--weight_decay"), "0.1")
 
-    def test_locks_equal_optimization_budget_and_longer_sequence(self):
-        self.assertEqual(self.value("--max_steps"), "1248")
+    def test_runs_two_full_data_passes_and_keeps_eight_checkpoints(self):
+        self.assertEqual(self.value("--max_steps"), "2080")
         self.assertEqual(self.value("--max_length"), "3072")
         self.assertEqual(self.value("--gradient_accumulation_steps"), "4")
-        self.assertEqual(self.value("--eval_steps"), "156")
-        self.assertEqual(self.value("--save_steps"), "156")
+        self.assertEqual(self.value("--eval_steps"), "260")
+        self.assertEqual(self.value("--save_steps"), "260")
         self.assertEqual(self.value("--save_total_limit"), "8")
         self.assertNotIn("--num_train_epochs", self.text)
 
     def test_has_non_mutating_preflight_and_distinct_output(self):
         self.assertIn("--preflight-only", self.text)
         self.assertIn("E4_PREFLIGHT_CHECK: PASS", self.text)
-        self.assertIn("e4_crop_aux_aligner_r16_s1248_v1", self.text)
+        self.assertIn("e4_crop_aux_aligner_r16_s2080_v1", self.text)
         self.assertIn("if [[ -e \"$OUT\" ]]", self.text)
 
 
