@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>E4 Crop 视觉复核</title>
+  <meta name="description" content="E4 局部辅助训练 Crop PoC 视觉复核工具">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="mark">E4</span><div><strong>Crop 视觉复核</strong><small>双图局部监督 · Train PoC</small></div></div>
+    <div class="progress"><div><span id="progressText">0 / 20</span><span id="saveState">正在载入</span></div><div class="track"><i id="progressBar"></i></div></div>
+    <div class="actions"><select id="filterSelect" aria-label="筛选样本"><option value="all">全部样本</option><option value="unreviewed">仅未复核</option><option value="T2_BAD">T2 异常局部</option><option value="T3_GOOD">T3 正常局部</option><option value="fail">仅有问题</option></select><button id="exportButton" class="button ghost">导出 CSV</button></div>
+  </header>
+
+  <main class="workspace">
+    <section class="visuals">
+      <div class="sample-head"><div><span id="sampleCounter">— / —</span><span id="typeBadge" class="badge">载入中</span></div><span class="legend"><i class="red"></i>异常 bbox <i class="cyan"></i>Crop 范围</span></div>
+      <div class="image-grid">
+        <article class="image-card"><div class="card-head"><strong>完整图与裁剪位置</strong><button id="openOriginal" class="text-button">打开原图 ↗</button></div><div class="image-stage"><span id="originalLoading">载入中…</span><img id="originalImage" alt="带 bbox 和 crop 范围的完整图"></div></article>
+        <article class="image-card crop-card"><div class="card-head"><strong>实际训练 Crop</strong><button id="openCrop" class="text-button">打开 Crop ↗</button></div><div class="image-stage"><span id="cropLoading">载入中…</span><img id="cropImage" alt="实际局部训练图片"></div></article>
+      </div>
+      <p class="zoom-hint">点击图片切换原始尺寸；← / → 切换样本</p>
+      <div class="detail-grid">
+        <div><span>类别</span><strong id="categoryText">—</strong></div><div><span>原因</span><strong id="reasonText">—</strong></div><div><span>框面积</span><strong id="areaText">—</strong></div><div><span>扩张</span><strong id="scaleText">—</strong></div>
+      </div>
+      <div class="paths"><span>原图</span><code id="sourcePath">—</code><span>Crop</span><code id="cropPath">—</code></div>
+    </section>
+
+    <aside class="review-panel">
+      <div class="review-copy"><p>复核目标</p><h1>这个 Crop 能否作为可靠的局部监督？</h1><span id="selectionReason">—</span></div>
+      <form id="reviewForm">
+        <fieldset><legend>复核结论 <em>必填</em></legend><div class="status-options"><label><input type="radio" name="status" value="pass"><span class="pass">通过</span></label><label><input type="radio" name="status" value="fail"><span class="fail">有问题</span></label><label><input type="radio" name="status" value="unsure"><span>不确定</span></label></div></fieldset>
+        <fieldset><legend>问题类型 <small>选择“有问题”时至少勾选一项</small></legend><div class="issue-options">
+          <label><input type="checkbox" name="issues" value="bbox_misaligned"><span>bbox 错位</span></label>
+          <label><input type="checkbox" name="issues" value="crop_cuts_anomaly"><span>Crop 截断异常</span></label>
+          <label><input type="checkbox" name="issues" value="context_too_little"><span>上下文过少</span></label>
+          <label><input type="checkbox" name="issues" value="context_too_much"><span>上下文过多</span></label>
+          <label><input type="checkbox" name="issues" value="normal_crop_too_easy"><span>正常 Crop 过于简单</span></label>
+          <label><input type="checkbox" name="issues" value="orientation_problem"><span>图片方向异常</span></label>
+          <label><input type="checkbox" name="issues" value="other"><span>其他问题</span></label>
+        </div></fieldset>
+        <label class="notes-label" for="notesInput">备注</label><textarea id="notesInput" maxlength="2000" rows="5" placeholder="说明异常是否完整、上下文是否合适，或正常局部为何缺乏代表性。"></textarea>
+        <div class="form-actions"><button id="previousButton" type="button" class="button secondary">← 上一条</button><button id="saveButton" type="submit" class="button primary">保存并下一条</button><button id="nextButton" type="button" class="button secondary">下一条 →</button></div>
+      </form>
+    </aside>
+  </main>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
