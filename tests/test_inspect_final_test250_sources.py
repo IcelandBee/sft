@@ -24,6 +24,7 @@ class FinalTest250SourceInspectionTests(unittest.TestCase):
             sheet.append(["文件名", "结果"])
             sheet.append(["sample-a.jpg", "GOOD"])
             sheet.append(["sample-b.png", "BAD"])
+            sheet.append(["sample", "GROUP"])
             workbook.save(workbook_path)
 
             summary = audit_sources(workbook_path, image_root)
@@ -33,6 +34,8 @@ class FinalTest250SourceInspectionTests(unittest.TestCase):
             self.assertEqual(summary["workbook"]["sheet_count"], 1)
             profiles = summary["workbook"]["sheets"][0]["column_profiles"]
             self.assertEqual(profiles[0]["image_basename_matches"], 2)
+            self.assertEqual(profiles[0]["image_prefix_matched_values"], 3)
+            self.assertEqual(profiles[0]["image_prefix_matched_files"], 2)
             self.assertEqual(profiles[1]["top_values"][0]["count"], 1)
             self.assertEqual(len(summary["workbook"]["sha256"]), 64)
             self.assertEqual(len(summary["images"]["manifest_sha256"]), 64)

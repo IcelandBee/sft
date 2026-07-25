@@ -87,6 +87,9 @@ def inspect_images(image_root: Path) -> tuple[dict, set[str], set[str]]:
             "unreadable_count": len(unreadable),
             "unreadable_examples": unreadable[:10],
             "manifest_sha256": manifest_digest.hexdigest(),
+            "relative_path_examples": [
+                path.relative_to(image_root).as_posix() for path in images[:30]
+            ],
         },
         set(names),
         set(stems),
@@ -244,6 +247,35 @@ def inspect_sheet_xml(
         strings = [str(value).strip() for value in values]
         normalized_names = [normalized_basename(value) for value in values]
         counts = Counter(strings)
+        prefix_examples: list[dict] = []
+        prefix_count_distribution: Counter[int] = Counter()
+        prefix_matched_files: set[str] = set()
+        prefix_matched_values = 0
+        for value in strings:
+            token = normalized_basename(value)
+            if len(token) < 3:
+                continue
+            matches = sorted(
+                name
+                for name in image_names
+                if name == token
+                or name.startswith(token + "_")
+                or name.startswith(token + "-")
+                or name.startswith(token + ".")
+            )
+            if not matches:
+                continue
+            prefix_matched_values += 1
+            prefix_count_distribution[len(matches)] += 1
+            prefix_matched_files.update(matches)
+            if len(prefix_examples) < 8:
+                prefix_examples.append(
+                    {
+                        "value": compact_value(value, 80),
+                        "matched_count": len(matches),
+                        "files": matches[:8],
+                    }
+                )
         profiles.append(
             {
                 "column": column_letter(column),
@@ -260,6 +292,13 @@ def inspect_sheet_xml(
                     PurePosixPath(name).stem.casefold() in image_stems
                     for name in normalized_names
                 ),
+                "image_prefix_matched_values": prefix_matched_values,
+                "image_prefix_matched_files": len(prefix_matched_files),
+                "image_prefix_count_distribution": {
+                    str(count): frequency
+                    for count, frequency in sorted(prefix_count_distribution.items())
+                },
+                "image_prefix_examples": prefix_examples,
             }
         )
     merged_ranges = [
