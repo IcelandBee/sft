@@ -1,4 +1,7 @@
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 
 
@@ -6,6 +9,7 @@ class FinalTest250ProtocolTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         root = Path(__file__).resolve().parents[1]
+        cls.root = root
         cls.builder = (root / "scripts/build_final_test250_dataset.py").read_text(
             encoding="utf-8"
         )
@@ -41,6 +45,19 @@ class FinalTest250ProtocolTests(unittest.TestCase):
         self.assertIn("checkpoint_selection_forbidden", self.runner)
         self.assertNotIn("selected_step", self.runner)
         self.assertNotIn("run_selection", self.runner)
+
+    def test_builder_supports_absolute_path_execution_outside_repo(self):
+        script = self.root / "scripts/build_final_test250_dataset.py"
+        with tempfile.TemporaryDirectory() as cwd:
+            result = subprocess.run(
+                [sys.executable, str(script), "--help"],
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("usage:", result.stdout)
 
 
 if __name__ == "__main__":

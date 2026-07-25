@@ -9,10 +9,9 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
-import sys
 import tempfile
 
-try:
+if __package__:
     from scripts.audit_final_test250_independence import (
         TestIndependenceError,
         classify_label,
@@ -20,15 +19,14 @@ try:
     )
     from scripts.evaluate_e1_dev import SYSTEM_PROMPT, USER_PROMPT
     from scripts.inspect_final_test250_sources import IMAGE_SUFFIXES, file_sha256
-except ModuleNotFoundError:  # Support absolute-path execution on the server.
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from scripts.audit_final_test250_independence import (
+else:  # The script directory is on sys.path during absolute-path execution.
+    from audit_final_test250_independence import (
         TestIndependenceError,
         classify_label,
         load_sheet_rows,
     )
-    from scripts.evaluate_e1_dev import SYSTEM_PROMPT, USER_PROMPT
-    from scripts.inspect_final_test250_sources import IMAGE_SUFFIXES, file_sha256
+    from evaluate_e1_dev import SYSTEM_PROMPT, USER_PROMPT
+    from inspect_final_test250_sources import IMAGE_SUFFIXES, file_sha256
 
 
 class FinalTestBuildError(ValueError):

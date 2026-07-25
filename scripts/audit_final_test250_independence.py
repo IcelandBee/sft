@@ -9,11 +9,10 @@ from collections import Counter
 import hashlib
 import json
 from pathlib import Path
-import sys
 from xml.etree import ElementTree
 from zipfile import ZipFile
 
-try:
+if __package__:
     from scripts.inspect_final_test250_sources import (
         IMAGE_SUFFIXES,
         MAIN_NS,
@@ -23,9 +22,8 @@ try:
         parse_shared_strings,
         workbook_sheet_paths,
     )
-except ModuleNotFoundError:  # Support absolute-path execution on the server.
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from scripts.inspect_final_test250_sources import (
+else:  # The script directory is on sys.path during absolute-path execution.
+    from inspect_final_test250_sources import (
         IMAGE_SUFFIXES,
         MAIN_NS,
         file_sha256,
