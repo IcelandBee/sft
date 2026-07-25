@@ -47,6 +47,10 @@ class FinalTest250SourceInspectionTests(unittest.TestCase):
         self.assertIn("/pose/pose/260428", script)
         self.assertIn('export CUDA_VISIBLE_DEVICES=""', script)
         self.assertNotIn("swift infer", script)
+        source = Path("scripts/inspect_final_test250_sources.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("openpyxl", source)
 
 
 if __name__ == "__main__":
