@@ -31,6 +31,10 @@ class MergeFourModelsTests(unittest.TestCase):
             "REQUIRED_FREE_GIB=260",
             "--merge_lora true",
             "--torch_dtype bfloat16",
+            "output_base_status=MISSING_WILL_CREATE",
+            'mkdir -p "$EXPORT_BASE"',
+            "required file is missing or unreadable",
+            "adapter weights are missing",
             "FOUR_MODEL_MERGE: PASS",
         ):
             self.assertIn(value, self.runner)

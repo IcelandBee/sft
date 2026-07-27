@@ -12,6 +12,19 @@ SWIFT="$TRAIN_ENV/bin/swift"
 GPU=${MERGE_GPU:-2}
 REQUIRED_FREE_GIB=260
 
+fail() {
+    echo "ERROR: $*" >&2
+    exit 1
+}
+
+require_executable() {
+    [[ -x "$1" ]] || fail "executable does not exist or is not executable: $1"
+}
+
+require_readable_file() {
+    [[ -r "$1" ]] || fail "required file is missing or unreadable: $1"
+}
+
 NAMES=(
     qwen35-27b-e1-1248-merged-bf16
     qwen35-27b-e2-1248-merged-bf16
@@ -25,51 +38,73 @@ ADAPTERS=(
     "$ROOT/runs/e5_crop_aux20_aligner_r16_s1560_v1/v0-20260723-210158/checkpoint-975"
 )
 
-test -x "$PYTHON"
-test -x "$SWIFT"
-command -v nvidia-smi >/dev/null
-test -r "$BASE_MODEL/config.json"
-test -r "$BASE_MODEL/generation_config.json"
-test -r "$BASE_MODEL/tokenizer_config.json"
-test -r "$BASE_MODEL/preprocessor_config.json"
-test -d "$EXPORT_BASE"
-test -w "$EXPORT_BASE"
-test -r "$REPO/scripts/validate_four_merged_models.py"
+if [[ $# -gt 1 ]] || { [[ $# -eq 1 ]] && [[ "$1" != "--preflight-only" ]]; }; then
+    fail "usage: $0 [--preflight-only]"
+fi
+
+echo "=== FOUR MODEL MERGE PREFLIGHT ==="
+echo "base_model=$BASE_MODEL"
+echo "output_root=$OUT"
+echo "merge_gpu=$GPU"
+
+require_executable "$PYTHON"
+require_executable "$SWIFT"
+command -v nvidia-smi >/dev/null || fail "nvidia-smi is not available"
+require_readable_file "$BASE_MODEL/config.json"
+require_readable_file "$BASE_MODEL/generation_config.json"
+require_readable_file "$BASE_MODEL/tokenizer_config.json"
+require_readable_file "$BASE_MODEL/preprocessor_config.json"
+require_readable_file "$REPO/scripts/validate_four_merged_models.py"
+
+EXPORT_PARENT=$(dirname "$EXPORT_BASE")
+[[ -d "$EXPORT_PARENT" ]] || fail "output parent directory does not exist: $EXPORT_PARENT"
+[[ -w "$EXPORT_PARENT" ]] || fail "output parent directory is not writable: $EXPORT_PARENT"
+if [[ -e "$EXPORT_BASE" ]] && [[ ! -d "$EXPORT_BASE" ]]; then
+    fail "output base exists but is not a directory: $EXPORT_BASE"
+fi
+if [[ -d "$EXPORT_BASE" ]]; then
+    [[ -w "$EXPORT_BASE" ]] || fail "output base directory is not writable: $EXPORT_BASE"
+    DISK_PROBE=$EXPORT_BASE
+    echo "output_base_status=EXISTS_WRITABLE"
+else
+    DISK_PROBE=$EXPORT_PARENT
+    echo "output_base_status=MISSING_WILL_CREATE"
+fi
 
 for index in "${!NAMES[@]}"; do
     adapter=${ADAPTERS[$index]}
-    test -r "$adapter/adapter_config.json"
-    compgen -G "$adapter/adapter_model*.safetensors" >/dev/null
+    require_readable_file "$adapter/adapter_config.json"
+    compgen -G "$adapter/adapter_model*.safetensors" >/dev/null || \
+        fail "adapter weights are missing: $adapter/adapter_model*.safetensors"
     echo "ADAPTER_CHECK: ${NAMES[$index]} <- $adapter"
 done
 
-FREE_MIB=$(nvidia-smi -i "$GPU" --query-gpu=memory.free --format=csv,noheader,nounits | tr -dc '0-9')
-FREE_GIB=$(df -BG --output=avail "$EXPORT_BASE" | tail -n 1 | tr -dc '0-9')
+GPU_QUERY=$(nvidia-smi -i "$GPU" --query-gpu=memory.free --format=csv,noheader,nounits) || \
+    fail "cannot query GPU index $GPU"
+FREE_MIB=$(printf '%s' "$GPU_QUERY" | tr -dc '0-9')
+[[ -n "$FREE_MIB" ]] || fail "GPU free-memory query returned no numeric value for GPU $GPU"
+DISK_QUERY=$(df -BG --output=avail "$DISK_PROBE") || fail "cannot query disk space for: $DISK_PROBE"
+FREE_GIB=$(printf '%s\n' "$DISK_QUERY" | tail -n 1 | tr -dc '0-9')
+[[ -n "$FREE_GIB" ]] || fail "disk-space query returned no numeric value for: $DISK_PROBE"
 echo "GPU $GPU free: ${FREE_MIB} MiB"
 echo "disk free: ${FREE_GIB} GiB"
 echo "required output space: ${REQUIRED_FREE_GIB} GiB"
 if [[ "$FREE_MIB" -lt 70000 ]]; then
-    echo "ERROR: GPU $GPU has less than 70000 MiB free" >&2
-    exit 1
+    fail "GPU $GPU has less than 70000 MiB free"
 fi
 if [[ "$FREE_GIB" -lt "$REQUIRED_FREE_GIB" ]]; then
-    echo "ERROR: less than ${REQUIRED_FREE_GIB} GiB disk space is available" >&2
-    exit 1
+    fail "less than ${REQUIRED_FREE_GIB} GiB disk space is available"
 fi
 if [[ -e "$OUT" ]]; then
-    echo "ERROR: output already exists: $OUT" >&2
-    exit 1
+    fail "output already exists: $OUT"
 fi
 
 if [[ "${1:-}" == "--preflight-only" ]]; then
     echo "FOUR_MODEL_MERGE_PREFLIGHT: PASS"
     exit 0
 fi
-if [[ $# -ne 0 ]]; then
-    echo "ERROR: unsupported argument: $1" >&2
-    exit 1
-fi
 
+mkdir -p "$EXPORT_BASE"
 mkdir -p "$OUT/logs"
 export CUDA_VISIBLE_DEVICES="$GPU"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
@@ -89,11 +124,11 @@ for index in "${!NAMES[@]}"; do
         --output_dir "$merged" \
         2>&1 | tee "$log"
 
-    test -r "$merged/config.json"
-    compgen -G "$merged/model-*.safetensors" >/dev/null
+    require_readable_file "$merged/config.json"
+    compgen -G "$merged/model-*.safetensors" >/dev/null || \
+        fail "merged model shards are missing: $merged/model-*.safetensors"
     if compgen -G "$merged/adapter_model*.safetensors" >/dev/null; then
-        echo "ERROR: merged output still contains adapter weights: $merged" >&2
-        exit 1
+        fail "merged output still contains adapter weights: $merged"
     fi
     echo "MERGE_COMPLETE: $merged"
 done
