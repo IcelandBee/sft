@@ -5,7 +5,7 @@ Input may be JSONL (``{"id": "x", "image": "/path/a.jpg"}``), ms-swift
 JSONL with one item in ``images``, or a plain text file containing one image path
 per line. The output is JSONL and intentionally stores no generated free text.
 
-Example (eight GPUs, two data-parallel workers per model):
+Example (four models run sequentially; each model uses all eight GPUs):
   python run_four_model_vllm_vote.py --input images.jsonl --output votes.jsonl \
       --devices 0,1,2,3,4,5,6,7
 """
@@ -13,7 +13,6 @@ Example (eight GPUs, two data-parallel workers per model):
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor
 import json
 import math
 import os
@@ -51,6 +50,7 @@ NON_THINKING_PREFIX = "<think>\n\n</think>\n\n"
 RESIZE_FACTOR = 28
 MIN_IMAGE_PIXELS = 4 * RESIZE_FACTOR * RESIZE_FACTOR
 MAX_IMAGE_PIXELS = 1024 * RESIZE_FACTOR * RESIZE_FACTOR
+TENSOR_PARALLEL_SIZE = 8
 
 
 class BatchInferenceError(ValueError):
@@ -205,7 +205,7 @@ def run_worker(args: argparse.Namespace) -> None:
     llm = LLM(
         model=str(args.worker_model),
         dtype="bfloat16",
-        tensor_parallel_size=1,
+        tensor_parallel_size=TENSOR_PARALLEL_SIZE,
         gpu_memory_utilization=args.gpu_memory_utilization,
         max_model_len=args.max_model_len,
         max_num_seqs=args.max_num_seqs,
@@ -280,36 +280,12 @@ def _run_subprocess(
     environment = os.environ.copy()
     environment["VLLM_USE_V1"] = "1"
     environment["CUDA_VISIBLE_DEVICES"] = device
-    print(f"MODEL_START name={name} model={model} device={device}", flush=True)
+    print(
+        f"MODEL_START name={name} model={model} devices={device} "
+        f"tensor_parallel_size={TENSOR_PARALLEL_SIZE}",
+        flush=True,
+    )
     subprocess.run(command, check=True, env=environment)
-
-
-def align_sharded_results(
-    requests: list[dict], model_shards: dict[str, list[list[dict]]]
-) -> dict[str, list[dict]]:
-    aligned: dict[str, list[dict]] = {}
-    expected_ids = [request["id"] for request in requests]
-    for name in MODEL_NAMES:
-        by_id: dict[str, str] = {}
-        for shard in model_shards[name]:
-            for row in shard:
-                item_id = row.get("id")
-                decision = row.get("decision")
-                if item_id in by_id:
-                    raise BatchInferenceError(f"{name}: duplicate result id: {item_id}")
-                if decision not in {"GOOD", "BAD"}:
-                    raise BatchInferenceError(f"{name}: invalid decision for id={item_id}")
-                by_id[item_id] = decision
-        if set(by_id) != set(expected_ids):
-            missing = sorted(set(expected_ids) - set(by_id))
-            extra = sorted(set(by_id) - set(expected_ids))
-            raise BatchInferenceError(
-                f"{name}: sharded result mismatch missing={missing[:3]} extra={extra[:3]}"
-            )
-        aligned[name] = [
-            {"id": item_id, "decision": by_id[item_id]} for item_id in expected_ids
-        ]
-    return aligned
 
 
 def combine_results(requests: list[dict], model_results: dict[str, list[dict]]) -> list[dict]:
@@ -359,36 +335,21 @@ def run_orchestrator(args: argparse.Namespace) -> None:
         tempfile.mkdtemp(prefix=f".{args.output.name}.", dir=args.output.parent)
     )
     try:
-        request_shards = (requests[0::2], requests[1::2])
-        request_paths = []
-        for shard_index, shard in enumerate(request_shards):
-            path = staging / f"requests-shard-{shard_index}.jsonl"
-            write_jsonl(path, shard)
-            request_paths.append(path)
-        jobs = [
-            (
+        requests_path = staging / "requests.jsonl"
+        write_jsonl(requests_path, requests)
+        device_group = ",".join(devices)
+        for name, model in models:
+            _run_subprocess(
                 args,
                 name,
                 model,
-                request_paths[shard_index],
-                staging / f"{name}-shard-{shard_index}.jsonl",
-                devices[model_index * 2 + shard_index],
+                requests_path,
+                staging / f"{name}.jsonl",
+                device_group,
             )
-            for model_index, (name, model) in enumerate(models)
-            for shard_index in range(2)
-        ]
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            futures = [executor.submit(_run_subprocess, *job) for job in jobs]
-            for future in futures:
-                future.result()
-        model_shards = {
-            name: [
-                load_jsonl(staging / f"{name}-shard-{shard_index}.jsonl")
-                for shard_index in range(2)
-            ]
-            for name in MODEL_NAMES
+        model_results = {
+            name: load_jsonl(staging / f"{name}.jsonl") for name in MODEL_NAMES
         }
-        model_results = align_sharded_results(requests, model_shards)
         combined = combine_results(requests, model_results)
         temporary_output = staging / "combined.jsonl"
         write_jsonl(temporary_output, combined)
