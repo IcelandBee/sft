@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Test250 快速盲审</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span>AD</span><div><strong>Test250 快速盲审</strong><small>73 张重点样本 · 隐藏原标签与模型预测</small></div></div>
+    <div class="progress"><div><b id="progressText">0 / 73</b><span id="saveState">正在载入</span></div><i><em id="progressBar"></em></i></div>
+    <div class="actions">
+      <select id="filterSelect"><option value="all">全部</option><option value="unreviewed">仅未完成</option><option value="completed">仅已完成</option></select>
+      <button id="exportButton" class="button ghost">导出 CSV</button>
+    </div>
+  </header>
+  <main>
+    <section class="viewer">
+      <div class="viewer-head"><b id="counter">— / —</b><span id="rowLabel">盲审样本</span><button id="openButton" class="link-button">新标签页打开原图 ↗</button></div>
+      <div id="stage" class="stage"><div id="loading">正在加载图片……</div><img id="image" alt="待复核图片"></div>
+      <div class="path"><span>路径</span><code id="imagePath">—</code></div>
+      <div class="navigation"><button id="previousButton" class="button dark">← 上一张</button><span>点击图片放大 · G/B/U 快速选择 · Ctrl+Enter 保存</span><button id="nextButton" class="button dark">下一张 →</button></div>
+    </section>
+    <aside class="form-panel">
+      <div class="notice"><strong>独立看图判断</strong><p>本页面不展示原人工标签、模型名称、预测结果或投票信息。</p></div>
+      <form id="reviewForm">
+        <fieldset>
+          <legend>1. 图片级结论 <em>必填</em></legend>
+          <div class="segmented decision">
+            <label><input type="radio" name="review_decision" value="GOOD"><span>GOOD <kbd>G</kbd></span></label>
+            <label><input type="radio" name="review_decision" value="BAD"><span>BAD <kbd>B</kbd></span></label>
+            <label><input type="radio" name="review_decision" value="UNSURE"><span>不确定 <kbd>U</kbd></span></label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>2. 可见异常程度 <em>必填</em></legend>
+          <div class="segmented severity">
+            <label><input type="radio" name="visible_severity" value="obvious"><span>明显</span></label>
+            <label><input type="radio" name="visible_severity" value="borderline"><span>边界</span></label>
+            <label><input type="radio" name="visible_severity" value="none"><span>无异常</span></label>
+            <label><input type="radio" name="visible_severity" value="uncertain"><span>不确定</span></label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>3. 异常类别 <small>可多选，非必填</small></legend>
+          <div id="categories" class="checks">
+            <label><input type="checkbox" value="手部异常"><span>手部异常</span></label>
+            <label><input type="checkbox" value="文字/符号异常"><span>文字/符号</span></label>
+            <label><input type="checkbox" value="面部/五官异常"><span>面部/五官</span></label>
+            <label><input type="checkbox" value="人体结构异常"><span>人体结构</span></label>
+            <label><input type="checkbox" value="常识不合理"><span>常识不合理</span></label>
+            <label><input type="checkbox" value="关系/逻辑矛盾"><span>关系/逻辑</span></label>
+            <label><input type="checkbox" value="其他"><span>其他</span></label>
+          </div>
+        </fieldset>
+        <label class="field-label" for="notes">简短原因或备注</label>
+        <textarea id="notes" maxlength="2000" rows="4" placeholder="例如：右手手指粘连；餐具结构异常。多个错因可用分号分隔。"></textarea>
+        <div class="footer"><span id="hint">填写两项必填内容后计入完成进度</span><button id="saveButton" type="submit" class="button primary">保存并下一张</button></div>
+      </form>
+    </aside>
+  </main>
+  <div id="toast" class="toast"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
