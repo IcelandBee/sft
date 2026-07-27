@@ -9,6 +9,7 @@ from scripts.run_constrained_binary_dev import (
     BinaryTokenTrie,
     ConstrainedBinaryError,
     _result_row,
+    build_parser,
 )
 
 
@@ -48,6 +49,25 @@ class BinaryTokenTrieTests(unittest.TestCase):
 
 
 class BinaryProtocolTests(unittest.TestCase):
+    def test_parser_supports_non_200_conditionally_readjudicated_dataset(self):
+        args = build_parser().parse_args(
+            [
+                "--model", "/model",
+                "--dev", "/test.jsonl",
+                "--expected-dev-sha256", "abc",
+                "--expected-count", "241",
+                "--expected-good", "175",
+                "--expected-bad", "66",
+                "--dataset-status", "conditionally_readjudicated_priority73_v1",
+                "--no-test-untouched",
+                "--output-dir", "/output",
+            ]
+        )
+        self.assertEqual(args.expected_count, 241)
+        self.assertEqual(args.expected_good, 175)
+        self.assertEqual(args.expected_bad, 66)
+        self.assertFalse(args.test_untouched)
+
     def test_candidate_payloads_are_valid_under_existing_strict_schema(self):
         for payload in (GOOD_PAYLOAD, BAD_PAYLOAD):
             with self.subTest(payload=payload):

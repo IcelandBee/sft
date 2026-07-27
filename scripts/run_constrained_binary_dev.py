@@ -68,7 +68,14 @@ class BinaryTokenTrie:
         return self.next_tokens(token_ids[self.prompt_length:])
 
 
-def _load_dev(path: Path, expected_sha256: str) -> tuple[list[dict], str]:
+def _load_dev(
+    path: Path,
+    expected_sha256: str,
+    *,
+    expected_count: int = 200,
+    expected_good: int = 142,
+    expected_bad: int = 58,
+) -> tuple[list[dict], str]:
     path = Path(path)
     try:
         source = path.read_bytes()
@@ -88,8 +95,10 @@ def _load_dev(path: Path, expected_sha256: str) -> tuple[list[dict], str]:
         if not isinstance(row, dict):
             raise ConstrainedBinaryError(f"Dev row {line_number} must be an object")
         rows.append(row)
-    if len(rows) != 200:
-        raise ConstrainedBinaryError(f"expected 200 Dev rows, got {len(rows)}")
+    if len(rows) != expected_count:
+        raise ConstrainedBinaryError(
+            f"expected {expected_count} evaluation rows, got {len(rows)}"
+        )
 
     decisions: Counter[str] = Counter()
     seen_images: set[str] = set()
@@ -119,8 +128,10 @@ def _load_dev(path: Path, expected_sha256: str) -> tuple[list[dict], str]:
         if decision not in {"GOOD", "BAD"}:
             raise ConstrainedBinaryError(f"invalid gold decision at Dev row {row_number}")
         decisions[decision] += 1
-    if decisions != {"GOOD": 142, "BAD": 58}:
-        raise ConstrainedBinaryError(f"Dev label counts mismatch: {dict(decisions)}")
+    if decisions != {"GOOD": expected_good, "BAD": expected_bad}:
+        raise ConstrainedBinaryError(
+            f"evaluation label counts mismatch: {dict(decisions)}"
+        )
     return rows, digest
 
 
@@ -191,7 +202,13 @@ def run(args: argparse.Namespace) -> dict:
     except ImportError as exc:
         raise ConstrainedBinaryError(f"required runtime import failed: {exc}") from exc
 
-    dev_rows, dev_sha256 = _load_dev(args.dev, args.expected_dev_sha256)
+    dev_rows, dev_sha256 = _load_dev(
+        args.dev,
+        args.expected_dev_sha256,
+        expected_count=args.expected_count,
+        expected_good=args.expected_good,
+        expected_bad=args.expected_bad,
+    )
     adapters = None if args.adapter is None else [str(args.adapter)]
     start = time.monotonic()
     engine = TransformersEngine(
@@ -287,7 +304,8 @@ def run(args: argparse.Namespace) -> dict:
         "num_completion_tokens": completion_tokens,
         "runtime_seconds": runtime,
         "result_sha256": hashlib.sha256(result_path.read_bytes()).hexdigest(),
-        "test_untouched": True,
+        "dataset_status": args.dataset_status,
+        "test_untouched": args.test_untouched,
     }
     metadata_path.write_text(
         json.dumps(metadata, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
@@ -303,6 +321,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--adapter", type=Path)
     parser.add_argument("--dev", required=True, type=Path)
     parser.add_argument("--expected-dev-sha256", required=True)
+    parser.add_argument("--expected-count", type=int, default=200)
+    parser.add_argument("--expected-good", type=int, default=142)
+    parser.add_argument("--expected-bad", type=int, default=58)
+    parser.add_argument("--dataset-status", default="frozen_evaluation_dataset")
+    parser.add_argument(
+        "--test-untouched",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
     parser.add_argument("--output-dir", required=True, type=Path)
     return parser
 
