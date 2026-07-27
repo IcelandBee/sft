@@ -5,13 +5,9 @@ Input may be JSONL (``{"id": "x", "image": "/path/a.jpg"}``), ms-swift
 JSONL with one item in ``images``, or a plain text file containing one image path
 per line. The output is JSONL and intentionally stores no generated free text.
 
-Examples:
-  # One accelerator, four models loaded sequentially
-  python run_four_model_vllm_vote.py --input images.jsonl --output votes.jsonl
-
-  # Four GPUs, one model per GPU
+Example (eight GPUs, two data-parallel workers per model):
   python run_four_model_vllm_vote.py --input images.jsonl --output votes.jsonl \
-      --devices 4,5,6,7
+      --devices 0,1,2,3,4,5,6,7
 """
 
 from __future__ import annotations
@@ -259,7 +255,7 @@ def _run_subprocess(
     model: Path,
     requests: Path,
     result: Path,
-    device: str | None,
+    device: str,
 ) -> None:
     command = [
         sys.executable,
@@ -283,10 +279,37 @@ def _run_subprocess(
     ]
     environment = os.environ.copy()
     environment["VLLM_USE_V1"] = "1"
-    if device is not None:
-        environment["CUDA_VISIBLE_DEVICES"] = device
-    print(f"MODEL_START name={name} model={model} device={device or 'inherited'}", flush=True)
+    environment["CUDA_VISIBLE_DEVICES"] = device
+    print(f"MODEL_START name={name} model={model} device={device}", flush=True)
     subprocess.run(command, check=True, env=environment)
+
+
+def align_sharded_results(
+    requests: list[dict], model_shards: dict[str, list[list[dict]]]
+) -> dict[str, list[dict]]:
+    aligned: dict[str, list[dict]] = {}
+    expected_ids = [request["id"] for request in requests]
+    for name in MODEL_NAMES:
+        by_id: dict[str, str] = {}
+        for shard in model_shards[name]:
+            for row in shard:
+                item_id = row.get("id")
+                decision = row.get("decision")
+                if item_id in by_id:
+                    raise BatchInferenceError(f"{name}: duplicate result id: {item_id}")
+                if decision not in {"GOOD", "BAD"}:
+                    raise BatchInferenceError(f"{name}: invalid decision for id={item_id}")
+                by_id[item_id] = decision
+        if set(by_id) != set(expected_ids):
+            missing = sorted(set(expected_ids) - set(by_id))
+            extra = sorted(set(by_id) - set(expected_ids))
+            raise BatchInferenceError(
+                f"{name}: sharded result mismatch missing={missing[:3]} extra={extra[:3]}"
+            )
+        aligned[name] = [
+            {"id": item_id, "decision": by_id[item_id]} for item_id in expected_ids
+        ]
+    return aligned
 
 
 def combine_results(requests: list[dict], model_results: dict[str, list[dict]]) -> list[dict]:
@@ -328,38 +351,44 @@ def run_orchestrator(args: argparse.Namespace) -> None:
         raise BatchInferenceError(f"output already exists: {args.output}")
     requests = load_input(args.input)
     devices = tuple(item.strip() for item in args.devices.split(",") if item.strip())
-    if devices and len(devices) != len(models):
-        raise BatchInferenceError("--devices must contain exactly four device IDs")
+    if len(devices) != 8 or len(set(devices)) != 8:
+        raise BatchInferenceError("--devices must contain exactly eight unique device IDs")
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(
         tempfile.mkdtemp(prefix=f".{args.output.name}.", dir=args.output.parent)
     )
     try:
-        requests_path = staging / "requests.jsonl"
-        write_jsonl(requests_path, requests)
+        request_shards = (requests[0::2], requests[1::2])
+        request_paths = []
+        for shard_index, shard in enumerate(request_shards):
+            path = staging / f"requests-shard-{shard_index}.jsonl"
+            write_jsonl(path, shard)
+            request_paths.append(path)
         jobs = [
             (
                 args,
                 name,
                 model,
-                requests_path,
-                staging / f"{name}.jsonl",
-                devices[index] if devices else None,
+                request_paths[shard_index],
+                staging / f"{name}-shard-{shard_index}.jsonl",
+                devices[model_index * 2 + shard_index],
             )
-            for index, (name, model) in enumerate(models)
+            for model_index, (name, model) in enumerate(models)
+            for shard_index in range(2)
         ]
-        if devices:
-            with ThreadPoolExecutor(max_workers=4) as executor:
-                futures = [executor.submit(_run_subprocess, *job) for job in jobs]
-                for future in futures:
-                    future.result()
-        else:
-            for job in jobs:
-                _run_subprocess(*job)
-        model_results = {
-            name: load_jsonl(staging / f"{name}.jsonl") for name in MODEL_NAMES
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = [executor.submit(_run_subprocess, *job) for job in jobs]
+            for future in futures:
+                future.result()
+        model_shards = {
+            name: [
+                load_jsonl(staging / f"{name}-shard-{shard_index}.jsonl")
+                for shard_index in range(2)
+            ]
+            for name in MODEL_NAMES
         }
+        model_results = align_sharded_results(requests, model_shards)
         combined = combine_results(requests, model_results)
         temporary_output = staging / "combined.jsonl"
         write_jsonl(temporary_output, combined)
@@ -377,8 +406,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model", action="append", type=parse_named_model)
     parser.add_argument(
         "--devices",
-        default="",
-        help="four comma-separated physical GPU IDs; omit for sequential execution",
+        default="0,1,2,3,4,5,6,7",
+        help="exactly eight unique physical GPU IDs",
     )
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.84)
     parser.add_argument("--max-num-seqs", type=int, default=8)

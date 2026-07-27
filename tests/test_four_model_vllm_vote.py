@@ -5,6 +5,7 @@ import unittest
 
 from scripts.run_four_model_vllm_vote import (
     MODEL_NAMES,
+    align_sharded_results,
     combine_results,
     load_input,
     parse_decision,
@@ -18,17 +19,21 @@ class FourModelVllmVoteTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-    def test_script_has_four_merged_models_and_parallel_option(self):
+    def test_script_has_four_merged_models_and_eight_gpu_parallelism(self):
         for value in (
             "qwen35-27b-e1-1248-merged-bf16",
             "qwen35-27b-e2-1248-merged-bf16",
             "qwen35-27b-e5-780-recall-merged-bf16",
             "qwen35-27b-e5-975-balanced-merged-bf16",
             "--devices",
+            "0,1,2,3,4,5,6,7",
+            "ThreadPoolExecutor(max_workers=8)",
+            "model_index * 2 + shard_index",
             "CUDA_VISIBLE_DEVICES",
             "from vllm import LLM, SamplingParams",
         ):
             self.assertIn(value, self.script)
+        self.assertNotIn("sequential execution", self.script)
 
     def test_parse_decision_accepts_json_and_rejects_missing_decision(self):
         self.assertEqual(parse_decision('{"decision":"BAD","categories":[]}'), "BAD")
@@ -69,6 +74,24 @@ class FourModelVllmVoteTests(unittest.TestCase):
             rows = load_input(source)
             self.assertEqual([row["id"] for row in rows], ["1", "custom"])
             self.assertTrue(all("<|image_pad|>" in row["prompt"] for row in rows))
+
+    def test_two_shards_are_realigned_to_original_request_order(self):
+        requests = [
+            {"id": "a", "image": "/a.jpg", "prompt": "p"},
+            {"id": "b", "image": "/b.jpg", "prompt": "p"},
+            {"id": "c", "image": "/c.jpg", "prompt": "p"},
+        ]
+        model_shards = {
+            name: [
+                [{"id": "a", "decision": "GOOD"}, {"id": "c", "decision": "BAD"}],
+                [{"id": "b", "decision": "GOOD"}],
+            ]
+            for name in MODEL_NAMES
+        }
+        aligned = align_sharded_results(requests, model_shards)
+        self.assertEqual(
+            [row["id"] for row in aligned["e1_1248"]], ["a", "b", "c"]
+        )
 
 
 if __name__ == "__main__":
