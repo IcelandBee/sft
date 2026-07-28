@@ -63,6 +63,9 @@ class Qwen36ProcessorRunnerTests(unittest.TestCase):
         self.assertIn("export TRANSFORMERS_OFFLINE=1", script)
         self.assertIn("export IMAGE_MAX_TOKEN_NUM=1024", script)
         self.assertIn("--max-length 3072", script)
+        self.assertIn("required executable is missing", script)
+        self.assertIn("required file is missing or unreadable", script)
+        self.assertIn("preflight wrapper failed at line", script)
         self.assertNotIn("dev.jsonl", script)
         self.assertNotIn("test.jsonl", script)
 
