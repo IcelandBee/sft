@@ -1,6 +1,6 @@
 # Qwen3.6-27B 多模态 LoRA 复刻实验阶段总结
 
-阶段完成于 2026-07-29。本轮在不修改既有 Qwen3.5 环境、模型和 LoRA 资产的前提下，将 Qwen3.5 阶段的 E1～E5 实验迁移到 Qwen3.6-27B，完成隔离环境、processor/推理/训练兼容性验证、5 组正式训练，以及固定 Dev 的 40 个 checkpoint 图片级评测。当前已经在固定 Dev 上锁定 E5 checkpoint-780；复核 Test N=241 尚未运行。
+阶段完成于 2026-07-29。本轮在不修改既有 Qwen3.5 环境、模型和 LoRA 资产的前提下，将 Qwen3.5 阶段的 E1～E5 实验迁移到 Qwen3.6-27B，完成隔离环境、processor/推理/训练兼容性验证、5 组正式训练、固定 Dev 的 40 个 checkpoint 图片级评测，以及 Dev 选定模型在复核 Test N=241 上的一次性阶段评测。
 
 ## 1. 环境与兼容性验证
 
@@ -70,22 +70,39 @@
 
 本轮已证明 Qwen3.6 LoRA 明显超过自身未微调基线，但尚不能证明它整体优于已完成调优的 Qwen3.5。作为同一修正版 Dev 的参考，Qwen3.5 E2-1248 曾达到 Recall 74.14%、FPR 3.52%、Accuracy 90.00%、F1 81.13%；Qwen3.6 E5-780 的 Recall 更高 5.17 个百分点，但 FPR 高 14.09 个百分点、Accuracy 低 8.50 个百分点、F1 低 9.81 个百分点。Qwen3.6 E2-1248 也未复现 Qwen3.5 E2 的平衡指标。
 
-因此当前 Qwen3.6 的阶段价值是“基座迁移和完整训练链路成功、相对自身 Base 提升显著、召回上限较高”，而不是替代现有 Qwen3.5 最佳平衡模型。
+因此当前 Qwen3.6 的阶段价值是“基座迁移和完整训练链路成功、相对自身 Base 提升显著、Dev 召回上限较高”，而不是替代现有 Qwen3.5 最佳平衡模型。
 
-## 6. 当前结论与后续边界
+## 6. 一次性阶段 Test
 
-- 按预登记的 Dev 选择协议，当前锁定 **Qwen3.6 E5 checkpoint-780** 作为召回优先候选；E2 checkpoint-1248 只作为平衡型备选，不能通过观察 Test 后重新选择。
-- 复核 Test N=241 已在 Qwen3.5 阶段被观察并参与定向复核，只能用于阶段比较，不能用于 checkpoint、Prompt、阈值或训练参数选择。Qwen3.6 阶段 Test 脚本已经准备，但截至本文记录时尚未运行。
+固定 Dev 按预登记规则选出 E5 checkpoint-780 后，只对该模型运行一次复核 Test N=241。Test 共 GOOD 175、BAD 66，SHA256 为 `c59dc4dbd3752fc124a009d48bdbfcdf6f20aeb402a0db3bb41c8ce4c1fcda0f`。推理继续采用与 Dev 相同的自然生成协议，完整 schema 合法率为 100%，没有无效输出。
+
+| 模型/数据 | TP | FN | FP | TN | Recall | FPR | Accuracy | F1 | JSON |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Qwen3.6 E5-780 / Dev | 46 | 12 | 25 | 117 | 79.31% | 17.61% | 81.50% | 71.32% | 100.00% |
+| **Qwen3.6 E5-780 / Test** | **46** | **20** | **40** | **135** | **69.70%** | **22.86%** | **75.10%** | **60.53%** | **100.00%** |
+| Qwen3.5 E5-780 / Test（历史对照） | 49 | 17 | 36 | 139 | 74.24% | 20.57% | 78.01% | 64.90% | 100.00% |
+
+从 Dev 到 Test，Qwen3.6 E5-780 的 Recall 下降 9.61 个百分点、FPR 增加 5.25 个百分点、Accuracy 下降 6.40 个百分点、F1 下降 10.79 个百分点。它在 Test 上满足 FPR≤25% 和 Accuracy≥72%，但 Recall 69.70% 低于项目 Recall≥72% 的 Go 门槛，因此业务效果判定为未通过。脚本输出的 `PASS` 仅表示数据校验、推理和评分流程成功，不表示模型指标达到 Go 标准。
+
+在同一 N=241 Test 上，Qwen3.6 E5-780 相比 Qwen3.5 E5-780 少 3 个 TP、多 4 个 FP；Recall 低 4.54 个百分点、FPR 高 2.29 个百分点、Accuracy 低 2.91 个百分点、F1 低 4.37 个百分点。四项业务指标均未超过 Qwen3.5 对照，进一步确认当前 Qwen3.6 复刻模型不应替换既有 Qwen3.5 候选。
+
+该 Test 已在 Qwen3.5 阶段被观察并参与定向复核，本结果只能用于阶段比较。不能根据该结果改选 E2/E3/E4、其他 checkpoint、Prompt 或训练参数，否则会将 Test 变成第二个 Dev。
+
+## 7. 当前结论与后续边界
+
+- 按预登记的 Dev 选择协议，本轮唯一进入阶段 Test 的模型为 **Qwen3.6 E5 checkpoint-780**；E2 checkpoint-1248 仍只是 Dev 上的平衡型备选，不根据 Test 改选。
+- Qwen3.6 E5-780 的阶段 Test Recall 未达到 Go 门槛，且整体弱于同 checkpoint 编号的 Qwen3.5 E5 路线。本轮目标中“明显超过未微调 Qwen3.6 Base”已在固定 Dev 上实现，但“替代现有 Qwen3.5 最佳模型”未实现。
 - 正式泛化结论仍需要一批不参与任何选择的新盲测数据。
-- LoRA 合并等价性、vLLM/NPU 后端一致率尚未验证，应在阶段 Test 确认候选后继续执行。
+- LoRA 合并等价性、vLLM/NPU 后端一致率尚未验证。鉴于当前候选未达到替代标准，不建议直接进入部署验证；如继续，只应作为 Qwen3.6 工程兼容性研究，而不是默认上线候选。
 
-## 7. 主要代码与产物
+## 8. 主要代码与产物
 
 - 训练入口：`scripts/train_qwen36_replica.sh`
 - 正式训练队列：`scripts/run_qwen36_replica_queue.sh`
 - checkpoint Dev 评测：`scripts/run_qwen36_dev_checkpoints.sh`
 - Dev 评测队列：`scripts/run_qwen36_dev_evaluation_queue.sh`
 - Dev 汇总：`/home/data/h30082292/data/pose/artifact_detection_training/evaluations/qwen36_27b/dev_comparison_v1.json`
-- 一次性阶段 Test：`scripts/run_qwen36_e5_780_stage_test.sh`（未运行）
+- 一次性阶段 Test：`scripts/run_qwen36_e5_780_stage_test.sh`
+- 阶段 Test 指标：`/home/data/h30082292/data/pose/artifact_detection_training/evaluations/qwen36_27b/stage_test241_e5_780_v1/evaluation/metrics.json`
 
 相关代码提交依次为：processor 预检 `588fe50`、环境诊断 `7f7a84d`、自然推理 PoC `e803324`、四卡 LoRA PoC `145370b`、E1～E5 训练队列 `f9b6a6f`、固定 Dev checkpoint 评测 `beee6b4`、一次性阶段 Test 脚本 `e6849b7`。
